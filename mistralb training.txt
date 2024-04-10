@@ -1,0 +1,103 @@
+pip install transformers
+
+
+from transformers import pipeline
+
+# Load the fine-tuned MistralB LLM model
+model = pipeline("text2text-generation", model="path_to_fine_tuned_model")
+
+# Provide Swagger input
+swagger_input = {
+    "swagger": "2.0",
+    "info": {
+        "version": "1.0",
+        "title": "Hello World API"
+    },
+    "paths": {
+        "/hello/{user}": {
+            "get": {
+                "description": "Returns a greeting to the user!",
+                "parameters": [
+                    {
+                        "name": "user",
+                        "in": "path",
+                        "type": "string",
+                        "required": True,
+                        "description": "The name of the user to greet."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Returns the greeting.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid characters in \"user\" were provided."
+                    }
+                }
+            }
+        }
+    }
+}
+
+# Generate documentation
+generated_documentation = model(swagger_input, max_length=200, num_return_sequences=1)
+
+# Print the generated documentation
+print(generated_documentation)
+
+
+
+from datasets import Dataset
+
+class SwaggerDocumentationDataset(Dataset):
+    def __init__(self, swagger_data, documentation_data):
+        self.swagger = swagger_data
+        self.documentation = documentation_data
+
+    def __len__(self):
+        return len(self.swagger)
+
+    def __getitem__(self, index):
+        return {
+            "input": self.swagger[index],
+            "target": self.documentation[index]
+        }
+
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, Trainer, TrainingArguments
+
+# Load the pre-trained MistralB LLM model
+model = AutoModelForSeq2SeqLM.from_pretrained("mistral/mistral-base")
+
+# Load the tokenizer
+tokenizer = AutoTokenizer.from_pretrained("mistral/mistral-base")
+
+# Prepare the dataset
+swagger_data = [{"swagger": "2.0", "info": {"version": "1.0", "title": "Hello World API"}, "paths": {...}}]
+documentation_data = ["Hello World API Documentation", ...]
+dataset = SwaggerDocumentationDataset(swagger_data, documentation_data)
+
+# Tokenize the dataset
+tokenized_dataset = dataset.map(lambda example: tokenizer(example["input"], example["target"], truncation=True, padding="max_length"), batched=True)
+
+# Prepare the training arguments
+training_args = TrainingArguments(
+    output_dir="./results",
+    num_train_epochs=3,
+    per_device_train_batch_size=4,
+    save_steps=10_000,
+    save_total_limit=2,
+)
+
+# Create the Trainer
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    data_collator=tokenizer,
+    train_dataset=tokenized_dataset,
+)
+
+# Fine-tune the model
+trainer.train()
